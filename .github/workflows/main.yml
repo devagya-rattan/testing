@@ -1,25 +1,38 @@
-name: Deploy to AWS
+name: CI/CD → GCE VM
 on:
   push:
     branches:
-      - "main"
-env:
-  AWS_REGION: ap-south-1
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  PRIVATE_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
-  SERVER_PUBLIC_IP: ${{ secrets.AWS_PUBLIC_KEY }}
-
+      - main
 jobs:
-  deploy:
+  build-test-deploy:
     runs-on: ubuntu-latest
+    env:
+      REMOTE_DIR: ${{ secrets.GCE_REMOTE_DIR }}
+      SSH_USER: ${{ secrets.GCE_SSH_USER }}
+      SSH_HOST: ${{ secrets.GCE_SSH_HOST }}
+      SSH_PORT: ${{ secrets.GCE_SSH_PORT || '22' }}
+
     steps:
-      - name: Make dir
-        uses: appleboy/ssh-action@master
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCE_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p ${{ env.SSH_PORT }} ${{ env.SSH_HOST }} >> ~/.ssh/known_hosts
+      - name: Clone repo and setup docker 
+        uses: appleboy/ssh-action@v0.1.8
         with:
-          host: ${{ env.SERVER_PUBLIC_IP }}
-          username: ubuntu
-          key: ${{ env.PRIVATE_SSH_KEY }}
-          envs: PRIVATE_SSH_KEY,REGISTRY,REPOSITORY,IMAGE_TAG,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,AWS_DEFAULT_REGION,AWS_REGION
-          script: |-
-            mkdir deploy
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          port: ${{ env.SSH_PORT }}
+          key: ${{ secrets.GCE_SSH_PRIVATE_KEY }}
+          run: |
+            sudo apt update
+            git clone https://github.com/twbs/bootstrap.git
+            sudo apt install docker -y
+            sudo systemctl start docker
+            sudo systemctl status docker
+            docker build -t archit:v1 .
+            docker run archit:v1
